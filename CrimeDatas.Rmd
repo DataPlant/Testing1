@@ -1,0 +1,151 @@
+---
+title: "Crime Data"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+```{r}
+CrimeData <- read.csv(file="C:/Users/DataP/Downloads/DataSets/Crime.csv", header=TRUE)
+```
+Crime data was downloaded from Data.MontgomeryCountymd.gov, a montgomery county data hub. This is the crime reports in montgomery county districts.
+
+
+Looking at the unique values in the crime.name.2 tab to gain insight on the number of categories that the reports are classified under.
+```{r}
+unique(CrimeData["Crime.Name2"])
+```
+Same thing here, except crime.name1 is branched into fewer and more general categories.
+```{r}
+unique(CrimeData["Crime.Name1"])
+```
+
+Used the "Not a Crime" to filter the misdemeanors/weak crimes. Then check to see if we were successful.
+```{r}
+crimefilter1 <- subset(CrimeData, Crime.Name1 != "Not a Crime")
+unique(crimefilter1['Crime.Name1'])
+```
+
+Now to look at the timestamp to see what the date ranges are for the data.
+```{r}
+head(crimefilter1)
+tail(crimefilter1)
+```
+
+Looks like the data is not ordered chronologically. Lets arrange it.
+First is to clean the column up, because it also retains the time data, which we do not need. (I also don't know how to process time yet) I create a variable for just the month/date/year, then I will try to reattach the variable as a separate column.
+```{r}
+sortedcrimedates <- as.Date(crimefilter1$Dispatch.Date.Time, "%m/%d/%Y")
+crimefilter1$Date <- sortedcrimedates
+```
+
+Now the dates are reattached to the dataset.
+```{r}
+head(crimefilter1)
+```
+
+The Date column is automatically attached to the back of the data, let us use column indexes to rearrange the dataset so that the date column is at the front. Also taking out the current Dispatch.Date.Time column.
+```{r}
+crimefilter1$Dispatch.Date.Time <- NULL
+crimefilter2 <- crimefilter1[c(26,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25)]
+```
+
+Now, if you look at crimefilter2, we have a date column in the front, and the dispatch.date.time column gone
+```{r}
+head(crimefilter2)
+```
+
+Now to order the rows by dates. Note that this was not possible before because R recognized the Dispatch.Date.Time values as a factor, not date.
+```{r}
+crimefilter2 <- crimefilter2[order(as.Date(crimefilter2$Date)),]
+head(crimefilter2)
+tail(crimefilter2)
+```
+
+As you can see, the data still needs some cleaning, the tail() function shows the NA on the date columns. Note that I went back to the original data to double check the NA, as it could have been a product of error when I was pulling the Dispatch.Date.Time. It was not, there is a large chunk of data that is missing a date value. I believe these are past crime data that existed before DataMontgomery started recording the incidents daily.
+
+So, we will clean the data further by subsetting the rows with date values on them. We are also deleting the first value, which is because the date is 2013. That is the only row in the dataset that isnt between 2016-2019.
+```{r}
+crimefilter3 <- subset(crimefilter2, (!is.na(crimefilter2['Date'])))
+head(crimefilter3)
+tail(crimefilter3)
+```
+
+Now to delete the first row.
+```{r}
+crimefilter4 <- crimefilter3[-c(1),]
+head(crimefilter4)
+tail(crimefilter4)
+```
+
+I would like to do a frequency count of incidents daily. Let us load the libraries in and graph it.
+```{r}
+library(ggplot2)
+tab1 <- table(cut(crimefilter4$Date, 'month'))
+freqdate <- data.frame(Date=format(as.Date(names(tab1)), '%m/%Y'), Frequency=as.vector(tab1))
+#We will only use 2018 data, as that is the only year with a complete dataset throughout the year.
+freqdate2 <- freqdate[c(19:30),]
+freqdate2
+qplot(x=Date, y=Frequency, data=freqdate2)
+```
+
+Do a graph by cities.
+```{r}
+#Updating the crimefilter variable so only 2018 data is there.
+crimefilter5 <- crimefilter4[crimefilter4$Date>="2018-01-01" & crimefilter4$Date<="2018-12-31",]
+qplot(x=City, data=crimefilter5, geom = 'bar')
+```
+
+Not pretty at all. Lets see what is up with the city values.
+```{r}
+unique(crimefilter5$City)
+```
+
+So there are too many x variables, not to mention misspelling. I will focus on Germantown, Rockville, Silver Spring, Bethesda, Chevy Chase, Gaithersburg, Potomac.
+```{r}
+#Need to change datatype of the City column in crimefilter5
+library(dplyr)
+tempcity1 <-
+  crimefilter5 %>%
+  mutate(City = as.character(crimefilter5$City))
+#Now filtering the needed cities
+tempcity2 <- filter(tempcity1, City %in% c("GERMANTOWN","ROCKVILLE","SILVER SPRING","BETHESDA","CHEVY CHASE","GAITHERSBURG","POTOMAC"))
+```
+
+Running a bargraph again on the updated version.
+```{r}
+qplot(x=City, data=tempcity2, geom = 'bar')
+```
+
+Overlap in x axis, using ggplot() to further edit.
+```{r}
+ggplot(tempcity2, aes(City)) +
+  geom_bar() +
+  coord_flip()
+```
+
+Ordering the bars then replotting.
+```{r}
+tempcity3 <- within(tempcity2,
+                    City <- factor(City,
+                                   levels=names(sort(table(City),
+                                                     decreasing = FALSE))))
+#replotting
+ggplot(tempcity3, aes(City)) +
+  geom_bar()+
+  coord_flip()+
+  ggtitle("Crime Count by Cities (2018)")+
+  ylab("Number of Reported Crimes")
+```
+
+Doing a clean version of the frequency counts by months that was done earlier.
+```{r}
+#qplot(x=Date, y=Frequency, data=freqdate2)
+ggplot(freqdate2, aes(x=Date, y=Frequency)) +
+  geom_bar(stat = "identity") +
+  coord_cartesian(ylim = c(3400, 3900)) +
+  ggtitle("Crime Frequency of Montgomery County by Months in 2018") +
+  ylab("Number of Reported Crimes") +
+  xlab("Months")
+```
+
